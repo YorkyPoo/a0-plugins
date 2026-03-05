@@ -98,6 +98,70 @@ def _token() -> str:
     return token
 
 
+def _token_type_hint(token: str) -> str:
+    # Do not print the token. Only provide a coarse hint based on public prefixes.
+    if token.startswith("ghs_"):
+        return "ghs_* (GitHub Actions / app installation token style)"
+    if token.startswith("ghp_"):
+        return "ghp_* (classic PAT style)"
+    if token.startswith("github_pat_"):
+        return "github_pat_* (fine-grained PAT style)"
+    return "(unknown token prefix)"
+
+
+def _rest_request_json(method: str, url: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, str], Any]:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {_token()}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "a0-plugins-discussion-updater",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            headers = {k.lower(): v for (k, v) in resp.headers.items()}
+            try:
+                parsed = json.loads(raw) if raw.strip() else None
+            except Exception:
+                parsed = raw
+            return int(resp.status), headers, parsed
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        headers = {k.lower(): v for (k, v) in e.headers.items()} if e.headers else {}
+        req_id = headers.get("x-github-request-id", "")
+        scopes = headers.get("x-oauth-scopes", "")
+        _fail(
+            f"GitHub REST request failed status={e.code} method={method} url={url} "
+            f"request_id={req_id!s} scopes={scopes!s} body={raw[:800]}"
+        )
+    except Exception as e:
+        _fail(f"GitHub REST request failed method={method} url={url}: {e}")
+
+
+def _print_auth_diagnostics() -> None:
+    token = _token()
+    print(f"Auth: token_hint={_token_type_hint(token)}")
+    status, headers, parsed = _rest_request_json("GET", "https://api.github.com/user")
+    login = None
+    if isinstance(parsed, dict) and isinstance(parsed.get("login"), str):
+        login = parsed.get("login")
+    scopes = headers.get("x-oauth-scopes", "")
+    fine_grained = headers.get("x-accepted-oauth-scopes", "")
+    req_id = headers.get("x-github-request-id", "")
+    print(
+        "Auth: "
+        f"rest_user_status={status} login={login!s} request_id={req_id!s} "
+        f"x-oauth-scopes={scopes!s} x-accepted-oauth-scopes={fine_grained!s}"
+    )
+
+
 def _graphql_request(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     req = urllib.request.Request(
         "https://api.github.com/graphql",
@@ -117,7 +181,12 @@ def _graphql_request(query: str, variables: dict[str, Any]) -> dict[str, Any]:
             payload = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         msg = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
-        _fail(f"GitHub GraphQL request failed ({e.code}): {msg}")
+        req_id = ""
+        scopes = ""
+        if e.headers:
+            req_id = e.headers.get("x-github-request-id", "")
+            scopes = e.headers.get("x-oauth-scopes", "")
+        _fail(f"GitHub GraphQL request failed status={e.code} request_id={req_id!s} scopes={scopes!s}: {msg}")
     except Exception as e:
         _fail(f"GitHub GraphQL request failed: {e}")
 
@@ -132,7 +201,8 @@ def _graphql_request(query: str, variables: dict[str, Any]) -> dict[str, Any]:
 
     parsed_dict = cast(dict[str, Any], parsed)
     if parsed_dict.get("errors"):
-        _fail(f"GitHub GraphQL errors: {parsed_dict['errors']}")
+        errs = parsed_dict.get("errors")
+        _fail(f"GitHub GraphQL errors: {json.dumps(errs, indent=2, sort_keys=True)[:4000]}")
 
     data = parsed_dict.get("data")
     if not isinstance(data, dict):
@@ -418,6 +488,8 @@ def main() -> int:
             f"Detected {len(plugin_names)} plugins in scope, which exceeds MAX_PLUGINS={max_plugins}. "
             "Increase MAX_PLUGINS or run multiple smaller pushes."
         )
+
+    _print_auth_diagnostics()
 
     repo_id, category_id = _get_repo_and_category(owner, repo)
 
