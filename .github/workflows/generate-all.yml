@@ -31,6 +31,9 @@ jobs:
 
   generate-discussions:
     needs: generate-index
+    permissions:
+      contents: write
+      discussions: write
     uses: ./.github/workflows/generate-plugin-discussions.yml
     secrets: inherit
     with:

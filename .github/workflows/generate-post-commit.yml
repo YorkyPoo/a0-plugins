@@ -16,14 +16,19 @@ permissions:
 
 jobs:
   generate-index:
+    permissions:
+      contents: write
+      discussions: write
     uses: ./.github/workflows/generate-plugin-index.yml
     secrets: inherit
     with:
       before_sha: ${{ github.event.before }}
       after_sha: ${{ github.sha }}
-
   generate-discussions:
     needs: generate-index
+    permissions:
+      contents: write
+      discussions: write
     uses: ./.github/workflows/generate-plugin-discussions.yml
     secrets: inherit
     with:
