@@ -1,0 +1,7 @@
+title: Honcho Conversational Memory
+description: Persistent conversational memory via Honcho (by Plastic Labs). Automatically syncs all chat messages, retrieves summarised user context across sessions, and injects it into the agent system prompt. Requires a free Honcho API key.
+github: https://github.com/alogotron/a0-plugin-honcho
+tags:
+  - memory
+  - agents
+  - api
