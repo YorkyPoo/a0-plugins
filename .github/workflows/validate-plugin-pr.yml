@@ -8,9 +8,9 @@ on:
 
 permissions:
   contents: read
-  checks: write
   issues: write
   pull-requests: write
+  statuses: write
 
 jobs:
   validate:
@@ -66,8 +66,8 @@ jobs:
             core.setOutput('pr_author', pr.user.login);
             core.setOutput('is_draft', pr.draft ? 'true' : 'false');
 
-      - name: Create PR check run
-        id: check_run
+      - name: Set PR status to pending
+        id: status_context
         if: ${{ steps.pr_meta.outputs.should_run == 'true' }}
         uses: actions/github-script@v7
         with:
@@ -76,24 +76,19 @@ jobs:
             const isCommentRecheck = context.eventName === 'issue_comment';
             const name = 'Validate Plugin PR / validate';
             if (!isCommentRecheck) {
-              core.setOutput('name', name);
+              core.setOutput('context', name);
               return;
             }
-            const response = await github.rest.checks.create({
+            await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              name,
-              head_sha: '${{ steps.pr_meta.outputs.head_sha }}',
-              status: 'in_progress',
-              details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              external_id: String(context.runId),
-              output: {
-                title: 'Plugin submission validation in progress',
-                summary: 'Validation was re-triggered from a PR comment.',
-              },
+              sha: '${{ steps.pr_meta.outputs.head_sha }}',
+              state: 'pending',
+              context: name,
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: 'Validation was re-triggered from a PR comment.',
             });
-            core.setOutput('name', name);
-            core.setOutput('id', String(response.data.id));
+            core.setOutput('context', name);
 
       - name: Fetch PR head commit
         if: ${{ steps.pr_meta.outputs.should_run == 'true' }}
@@ -154,8 +149,8 @@ jobs:
               body: process.env.COMMENT_BODY,
             });
 
-      - name: Finalize PR check run
-        if: ${{ always() && steps.pr_meta.outputs.should_run == 'true' && steps.check_run.outputs.id != '' }}
+      - name: Finalize PR status
+        if: ${{ always() && steps.pr_meta.outputs.should_run == 'true' && steps.status_context.outputs.context != '' }}
         uses: actions/github-script@v7
         env:
           VALIDATION_OUTCOME: ${{ steps.validate_submission.outcome }}
@@ -163,26 +158,22 @@ jobs:
         with:
           github-token: ${{ steps.bot-app-token.outputs.token }}
           script: |
+            if (context.eventName !== 'issue_comment') {
+              return;
+            }
             const outcome = process.env.VALIDATION_OUTCOME;
-            const conclusion = outcome === 'success' ? 'success' : 'failure';
-            const summary = conclusion === 'success'
+            const state = outcome === 'success' ? 'success' : 'failure';
+            const description = state === 'success'
               ? 'Plugin submission validation passed.'
-              : (process.env.FAILURE_COMMENT_BODY || 'Plugin submission validation failed.');
-            await github.rest.checks.update({
+              : 'Plugin submission validation failed.';
+            await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              check_run_id: Number('${{ steps.check_run.outputs.id }}'),
-              name: '${{ steps.check_run.outputs.name }}',
-              status: 'completed',
-              conclusion,
-              completed_at: new Date().toISOString(),
-              details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              output: {
-                title: conclusion === 'success'
-                  ? 'Plugin submission validation passed'
-                  : 'Plugin submission validation failed',
-                summary,
-              },
+              sha: '${{ steps.pr_meta.outputs.head_sha }}',
+              state,
+              context: '${{ steps.status_context.outputs.context }}',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description,
             });
 
       - name: Fail workflow if validation failed
