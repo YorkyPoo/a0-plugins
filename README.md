@@ -11,6 +11,7 @@ Each plugin submission is a single folder (unique plugin name) containing:
 - **Optional thumbnail image** (`.png`, `.jpeg`/`.jpg`, or `.webp`)
   - **Square aspect ratio**
   - **Max size: 20 KB**
+  - If you do not provide a thumbnail, the repository may automatically generate an AI thumbnail for your plugin and store it under `generated/thumbnails/<your_plugin_name>/thumbnail.jpg`
 - **Optional screenshots** in `index.yaml` under `screenshots`
   - Up to **5 screenshot URLs**
   - Must be **full URLs**
@@ -60,6 +61,7 @@ PRs are automatically checked for:
   - Must be named `thumbnail.<ext>`
   - Must be square and <= 20 KB
   - Allowed formats: `.png`, `.jpg`/`.jpeg`, `.webp`
+  - If no thumbnail is provided, the repository may generate one automatically and publish it from `generated/thumbnails/<your_plugin_name>/thumbnail.jpg`
 - **Screenshot rules (optional)**
   - Must be provided only via `index.yaml` field `screenshots`
   - Up to 5 URLs total
@@ -74,6 +76,12 @@ PRs are automatically checked for:
 plugins/<your_plugin_name>/
   index.yaml
   thumbnail.png|thumbnail.jpg|thumbnail.jpeg|thumbnail.webp   (optional)
+```
+
+Generated fallback thumbnails, when created automatically, are stored separately at:
+
+```text
+generated/thumbnails/<your_plugin_name>/thumbnail.jpg
 ```
 
 The folder name under `plugins/` is authoritative in this index and must exactly match the `name` in your remote repository's root `plugin.yaml`.
